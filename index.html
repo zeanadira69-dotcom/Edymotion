@@ -92,6 +92,8 @@ textarea{resize:vertical;line-height:1.35}
 .thumb img{width:100%;height:100%;object-fit:cover;display:block}
 .imgctl{display:flex;flex-direction:column;gap:8px;min-width:0}
 .imgctl .row .btn{min-height:38px;padding:0 10px;font-size:13px}
+.imgctl .rowx{display:flex;gap:8px;flex-wrap:wrap}.imgctl .rowx .btn{flex:1 1 90px;min-height:38px;padding:0 10px;font-size:13px;display:inline-flex;align-items:center;justify-content:center;text-align:center}
+.btn input[type=file]{display:none}
 #sline{margin:0;max-width:420px;text-align:center;font-size:12px}
 .result{display:flex;flex-direction:column;align-items:center;gap:10px}
 .result video{height:min(46vh,480px);max-width:100%;aspect-ratio:9/16;border-radius:12px;background:#000}
@@ -640,6 +642,46 @@ async function makeMaster(){
     setBusy(false);setMsg("Master prompt dibuat. Ubah seperlunya, lalu buat gambar.","ok");
   }catch(e){setBusy(false);setMsg("Gagal membuat master prompt: "+(e&&e.message||e),"bad")}
 }
+function fileToJpegDataURL(file){
+  return new Promise(function(res,rej){
+    var u=URL.createObjectURL(file), im=new Image();
+    im.onload=function(){
+      var sc=Math.min(1,1280/Math.max(im.naturalWidth,im.naturalHeight)), c=document.createElement("canvas");
+      c.width=Math.round(im.naturalWidth*sc);c.height=Math.round(im.naturalHeight*sc);
+      c.getContext("2d").drawImage(im,0,0,c.width,c.height);URL.revokeObjectURL(u);res(c.toDataURL("image/jpeg",0.88));
+    };
+    im.onerror=function(){URL.revokeObjectURL(u);rej(new Error("File bukan gambar yang bisa dibuka"))};
+    im.src=u;
+  });
+}
+async function importImage(file,i){
+  var sc=S.scenes[i];if(!sc)return;
+  try{
+    var url=await fileToJpegDataURL(file);
+    await setImg(sc.id,url);idbDo("readwrite",function(s){return s.put(url,sc.id)});
+    if(!sc.imgMode||sc.imgMode==="none")sc.imgMode=S.gem.imgMode||"full";
+    save();
+  }catch(e){setMsg("Gagal membaca gambar: "+e.message,"bad")}
+}
+async function bulkImport(files){
+  files.sort(function(a,b){return a.name.localeCompare(b.name,undefined,{numeric:true})});
+  var n=Math.min(files.length,S.scenes.length);
+  for(var i=0;i<n;i++){setMsg("Memasang gambar "+(i+1)+" dari "+n+"…");await importImage(files[i],i)}
+  renderPanel();render();
+  setMsg(n+" gambar dipasang ke adegan 1 sampai "+n+(files.length>S.scenes.length?". Sisa "+(files.length-n)+" file diabaikan karena adegan kurang.":"."),"ok");
+}
+function copyPrompts(btn){
+  var t="MASTER PROMPT:\n"+(S.gem.imgStyle||"")+"\n\n"+S.scenes.map(function(sc,i){
+    var base=(sc.imgPrompt&&sc.imgPrompt.trim())||(sc.speech&&sc.speech.trim())||String(sc.text).replace(/\*/g,"");
+    return "SCENE "+(i+1)+": "+base;
+  }).join("\n\n")+"\n\n(Setiap gambar: vertical 9:16, no text, no logos, same style as the master prompt.)";
+  var done=function(ok){btn.textContent=ok?"Tersalin. Tempel di Gemini":"Gagal menyalin, tekan lama untuk memilih"};
+  try{navigator.clipboard.writeText(t).then(function(){done(true)},function(){fallbackCopy(t,btn);})}catch(e){fallbackCopy(t,btn)}
+}
+function fallbackCopy(t,btn){
+  var ta=document.createElement("textarea");ta.value=t;ta.style.cssText="position:fixed;opacity:0";document.body.appendChild(ta);ta.select();
+  var ok=false;try{ok=document.execCommand("copy")}catch(e){}ta.remove();btn.textContent=ok?"Tersalin. Tempel di Gemini":"Gagal menyalin"
+}
 async function genImages(onlyMissing,only){
   if(busy)return;
   if(!apiKey){setMsg("Isi API key Gemini dulu di tab Naskah.","bad");return}
@@ -657,7 +699,9 @@ async function genImages(onlyMissing,only){
     if(tab==="scenes"||tab==="script")renderPanel();
     render();setMsg("Gambar selesai ("+idx.length+"). Atur tampilannya per adegan di tab Adegan.","ok");
   }catch(e){
-    setBusy(false);setBar(null);setMsg("Gagal membuat gambar: "+(e&&e.message||e),"bad");
+    setBusy(false);setBar(null);var em=String(e&&e.message||e);
+    if(/Free Tier/i.test(em)&&/limit:\s*0/i.test(em))em+=" Model ini tidak punya jatah di paket gratis. Coba model lain di kolom Model gambar (mis. gemini-2.5-flash-image), aktifkan billing di Google AI Studio, atau buka bagian 'Tanpa API gambar' dan unggah gambar buatan sendiri.";
+    setMsg("Gagal membuat gambar: "+em,"bad");
   }
 }
 function refreshThumb(i){
@@ -751,7 +795,7 @@ function cardHTML(s,i){
   '<label class="f">Teks yang dibacakan suara<textarea rows="2" data-f="speech">'+esc(s.speech||"")+'</textarea></label>'+
   '<div class="imgrow"><div class="thumb">'+(imgs[s.id]?'<img alt="" src="'+imgs[s.id].url+'">':"Belum ada gambar")+'</div>'+
   '<div class="imgctl"><label class="f">Gambar<select data-f="imgMode"><option value="card"'+(modeOf(s)==="card"?" selected":"")+'>Kartu</option><option value="full"'+(modeOf(s)==="full"?" selected":"")+'>Latar penuh</option><option value="none"'+(imgs[s.id]&&s.imgMode==="none"?" selected":"")+'>Sembunyikan</option></select></label>'+
-  '<div class="row"><button class="btn" data-act="genimg"'+(busy?" disabled":"")+'>'+(imgs[s.id]?"Buat ulang":"Buat gambar")+'</button>'+(imgs[s.id]?'<button class="btn" data-act="delimg">Hapus</button>':'<span></span>')+'</div></div></div>'+
+  '<div class="rowx"><button class="btn" data-act="genimg"'+(busy?" disabled":"")+'>'+(imgs[s.id]?"Buat ulang":"Buat gambar")+'</button><label class="btn">Unggah<input type="file" accept="image/*" data-up="1"></label>'+(imgs[s.id]?'<button class="btn" data-act="delimg">Hapus</button>':'')+'</div></div></div>'+
   '<label class="f">Perintah gambar (kosong = otomatis dari teks suara)<textarea rows="2" data-f="imgPrompt" placeholder="mis. excavator kuning mengangkat batu besar di tambang">'+esc(s.imgPrompt||"")+'</textarea></label>'+
   '<div class="row"><label class="f">Durasi (detik)<input type="number" inputmode="decimal" min="1" max="40" step="0.5" data-f="dur" value="'+s.dur+'"></label>'+
   '<label class="f">Animasi<select data-f="anim">'+Object.keys(ANIMS).map(function(k){return '<option value="'+k+'"'+(s.anim===k?" selected":"")+'>'+ANIMS[k]+'</option>'}).join("")+'</select></label></div>'+
@@ -789,6 +833,10 @@ function scriptHTML(){
    '<label class="chk"><input type="checkbox" id="gref"'+(g.imgRef?" checked":"")+'> Pakai gambar adegan 1 sebagai acuan gaya (lebih konsisten)</label>'+
    '<label class="f">Tampilan gambar di semua adegan<select id="gmode"><option value="full"'+(g.imgMode!=="card"?" selected":"")+'>Latar penuh, dari awal sampai akhir</option><option value="card"'+(g.imgMode==="card"?" selected":"")+'>Kartu</option></select></label>'+
    '<button class="btn primary" id="imgs"'+(busy?" disabled":"")+'>Buat gambar untuk adegan yang belum ada</button>'+
+   '<details><summary>Tanpa API gambar (gratis): buat di aplikasi Gemini, lalu unggah</summary>'+
+   '<p class="note">Salin semua prompt, tempel satu per satu di gemini.google.com (minta rasio 9:16), simpan hasilnya, lalu unggah sekaligus di sini. Gambar diurutkan menurut nama file dan dipasang ke adegan 1, 2, 3 dan seterusnya.</p>'+
+   '<button class="btn" id="cpprompts">Salin semua prompt gambar</button>'+
+   '<label class="btn">Unggah banyak gambar sekaligus<input type="file" accept="image/*" multiple id="bulkimg"></label></details>'+
    '<div class="bar" id="gbar" hidden><i></i></div>'+
    '<p class="note'+(stale?" bad":"")+'" id="gmsg">'+(stale?"Adegan berubah setelah suara dibuat. Buat suara lagi agar sinkron.":(audio.tts?"Suara Gemini aktif ("+fmt(audio.dur)+"). Adegan yang tidak berubah tidak dibuat ulang.":"Durasi tiap adegan otomatis mengikuti panjang suaranya."))+'</p></div>';
 }
@@ -851,13 +899,16 @@ panel.addEventListener("change",function(e){
   if(el.id==="gai"){S.gem.ai=el.checked;save()}
   if(el.id==="gref"){S.gem.imgRef=el.checked;save()}
   if(el.id==="glang"){S.gem.lang=el.value;save()}
+  if(el.dataset.up&&el.files&&el.files[0]){var ui=sceneOf(el);if(ui!==null)importImage(el.files[0],ui).then(function(){renderPanel();render()});el.value=""}
+  if(el.id==="bulkimg"&&el.files&&el.files.length){bulkImport(Array.prototype.slice.call(el.files));el.value=""}
   if(el.id==="gmode"){S.gem.imgMode=el.value;S.scenes.forEach(function(sc){if(imgs[sc.id])sc.imgMode=el.value});cache={};save();render()}
   if(el.id==="gremember"){rememberKey=el.checked;try{if(rememberKey)localStorage.setItem("pono-gkey",apiKey);else localStorage.removeItem("pono-gkey")}catch(e){}}
 });
 panel.addEventListener("click",function(e){
   var tp=e.target.closest("[data-theme-pick]");
   if(tp){S.theme=tp.dataset.themePick;save();renderPanel();render();return}
-  var b=e.target.closest("[data-act],#rec,#savebtn,#split,#tts,#imgs,#mkmaster");if(!b)return;
+  var b=e.target.closest("[data-act],#rec,#savebtn,#split,#tts,#imgs,#mkmaster,#cpprompts");if(!b)return;
+  if(b.id==="cpprompts"){copyPrompts(b);return}
   if(b.id==="imgs"){genImages(true);return}
   if(b.id==="mkmaster"){makeMaster();return}
   if(b.id==="rec"){doExport();return}
