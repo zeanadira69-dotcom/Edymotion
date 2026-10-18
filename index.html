@@ -146,7 +146,7 @@ var VOICES=["Kore","Puck","Charon","Fenrir","Leda","Orus","Aoede","Zephyr","Achi
 var uid=function(){return Math.random().toString(36).slice(2,9)};
 var SAMPLE_SCRIPT="Alat berat ini bisa mengangkat 20 ton sekali ayun. Rahasianya ada di tiga bagian: mesin diesel, sistem hidrolik bertekanan tinggi, dan lengan baja yang kokoh. Satu ayunan saja bisa memindahkan satu truk tanah. Dan semua itu dikendalikan oleh satu orang dari dalam kabin. Jangan sampai ketinggalan, follow terus untuk konten alat berat lainnya.";
 var DEFAULT={theme:"industri",handle:"@MrPonoTech",res:720,script:SAMPLE_SCRIPT,
- gem:{voice:"Kore",tts:"gemini-3.8-flash-tts",text:"gemini-flash-latest",style:"Narator video YouTube alat berat, bahasa Indonesia, tempo sedang, jelas dan bersemangat",ai:true,
+ gem:{voice:"Kore",tts:"gemini-3.8-flash-tts",text:"gemini-flash-latest",style:"Narator video YouTube alat berat, bahasa Indonesia, tempo sedang, jelas dan bersemangat",ai:true,lang:"same",
   img:"gemini-nano-banana-2.1",imgStyle:"Cinematic photorealistic style. Setting: large open-pit construction site with heavy machinery. Lighting: golden hour, warm rim light, soft dust haze. Color palette: safety yellow, steel gray, deep charcoal. Camera: wide low-angle, shallow depth of field, ultra detailed. Keep the same machines, palette and lighting in every scene.",imgMode:"full",imgRef:true},
  scenes:[
  {id:uid(),label:"Mr Pono Tech",text:"Alat berat ini bisa *angkat 20 ton*",bullets:"",dur:3.5,anim:"reveal",speech:"Alat berat ini bisa mengangkat 20 ton sekali ayun."},
@@ -491,11 +491,16 @@ function setBar(p){var b=document.querySelector("#gbar>i");var w=document.getEle
 function setBusy(v){busy=v;["split","tts","imgs"].forEach(function(id){var b=document.getElementById(id);if(b)b.disabled=v});document.querySelectorAll("[data-act=genimg]").forEach(function(b){b.disabled=v})}
 
 async function aiSplit(raw,key){
-  var prompt="Kamu editor video pendek vertikal (TikTok/YouTube Shorts) berbahasa Indonesia. Pecah naskah voice-over berikut menjadi adegan berurutan.\n"+
+  var L2=S.gem.lang||"same";
+  var langRule=L2==="id"?"Tulis label, text, dan bullets dalam BAHASA INDONESIA (terjemahkan dari naskah bila perlu), sedangkan speech tetap persis seperti naskah asli.":
+    L2==="en"?"Write label, text, and bullets in ENGLISH (translate from the script if needed); speech stays exactly as in the original script.":
+    "Tulis label, text, dan bullets dalam BAHASA YANG SAMA PERSIS dengan naskah (naskah Inggris berarti semuanya Inggris, jangan diterjemahkan ke bahasa lain).";
+  var prompt="Kamu editor video pendek vertikal (TikTok/YouTube Shorts). Pecah naskah voice-over berikut menjadi adegan berurutan.\n"+
+  "ATURAN BAHASA: "+langRule+"\n"+
   "Balas HANYA JSON array. Tiap elemen: {\"speech\":string,\"label\":string,\"text\":string,\"bullets\":string[],\"anim\":string}.\n"+
   "- speech: potongan naskah ASLI persis seperti tertulis (jangan diubah), satu sampai dua kalimat, semua naskah harus terpakai berurutan.\n"+
-  "- label: pembuka sangat pendek maksimal 3 kata (contoh: \"Jadi,\", \"Faktanya\"), boleh string kosong.\n"+
-  "- text: judul layar padat maksimal 9 kata, bahasa santai. Apit satu frasa kunci (1-3 kata) dengan tanda bintang, contoh: Alat ini bisa *angkat 20 ton*.\n"+
+  "- label: pembuka sangat pendek maksimal 3 kata, boleh string kosong. Contoh: \"So,\" / \"Fun fact\" untuk naskah Inggris, \"Jadi,\" / \"Faktanya\" untuk naskah Indonesia.\n"+
+  "- text: judul layar padat maksimal 9 kata, gaya santai. Apit satu frasa kunci (1-3 kata) dengan tanda bintang, contoh: This machine can *lift 20 tons* atau Alat ini bisa *angkat 20 ton*.\n"+
   "- bullets: 0 sampai 4 poin sangat pendek, isi hanya jika naskah menyebut daftar atau beberapa hal.\n"+
   "- anim: salah satu dari reveal, pop, slide. Variasikan.\n"+
   "- image: satu kalimat deskripsi visual dalam bahasa Inggris untuk ilustrasi adegan ini (objek, aksi, sudut kamera), tanpa teks di dalam gambar.\n\nNASKAH:\n"+raw;
@@ -765,6 +770,7 @@ function scriptHTML(){
   return '<div class="sec"><h3>Naskah</h3>'+
    '<label class="f">Tempel seluruh naskah di sini<textarea id="script" rows="9" placeholder="Tulis atau tempel naskah voice-over…">'+esc(S.script||"")+'</textarea></label>'+
    '<label class="chk"><input type="checkbox" id="gai"'+(g.ai?" checked":"")+'> Rapikan judul adegan dengan Gemini</label>'+
+   '<label class="f">Bahasa tulisan di layar<select id="glang"><option value="same"'+(g.lang!=="id"&&g.lang!=="en"?" selected":"")+'>Sama dengan naskah</option><option value="id"'+(g.lang==="id"?" selected":"")+'>Indonesia</option><option value="en"'+(g.lang==="en"?" selected":"")+'>English</option></select></label>'+
    '<button class="btn primary" id="split"'+(busy?" disabled":"")+'>Pecah jadi adegan</button>'+
    '<p class="note">Ini mengganti semua adegan. Tanpa API key atau tanpa centang, naskah dipecah per kalimat secara lokal.</p></div>'+
   '<div class="sec"><h3>Suara Gemini</h3>'+
@@ -844,6 +850,7 @@ panel.addEventListener("change",function(e){
   if(el.id==="gvoice"){S.gem.voice=el.value;save()}
   if(el.id==="gai"){S.gem.ai=el.checked;save()}
   if(el.id==="gref"){S.gem.imgRef=el.checked;save()}
+  if(el.id==="glang"){S.gem.lang=el.value;save()}
   if(el.id==="gmode"){S.gem.imgMode=el.value;S.scenes.forEach(function(sc){if(imgs[sc.id])sc.imgMode=el.value});cache={};save();render()}
   if(el.id==="gremember"){rememberKey=el.checked;try{if(rememberKey)localStorage.setItem("pono-gkey",apiKey);else localStorage.removeItem("pono-gkey")}catch(e){}}
 });
