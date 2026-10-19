@@ -97,6 +97,9 @@ textarea{resize:vertical;line-height:1.35}
 #sline{margin:0;max-width:420px;text-align:center;font-size:12px}
 .result{display:flex;flex-direction:column;align-items:center;gap:10px}
 .result video{height:min(46vh,480px);max-width:100%;aspect-ratio:9/16;border-radius:12px;background:#000}
+.card details{display:flex;flex-direction:column;gap:10px}
+.card details>summary{cursor:pointer;font-size:13.5px;color:var(--muted);padding:4px 0}
+textarea.code{font:500 12.5px/1.4 var(--f-mono);white-space:pre;overflow:auto;tab-size:2}
 @media (min-width:880px){
   .layout{grid-template-columns:360px minmax(0,1fr);align-items:start}
   .stage{top:16px;padding-top:12px}
@@ -663,6 +666,57 @@ async function importImage(file,i){
     save();
   }catch(e){setMsg("Gagal membaca gambar: "+e.message,"bad")}
 }
+/* ---------- gambar dari kode: HTML/CSS/JS dijalankan di iframe sandbox, hasilnya difoto jadi gambar adegan ---------- */
+var CODE_W=360, CODE_H=640;
+function codeDoc(src,wait){
+  var probe='<style>html,body{margin:0}</style><script>(function(){function px(el){var cs=getComputedStyle(el),t="";for(var i=0;i<cs.length;i++){var k=cs[i];t+=k+":"+cs.getPropertyValue(k)+";"}return t}function clr(c){return !c||c==="transparent"||/^rgba\(\s*0,\s*0,\s*0,\s*0\s*\)$/.test(c)}function send(){try{var bd=document.body,A=document.documentElement,B=bd.cloneNode(true),a=bd.querySelectorAll("*"),b=B.querySelectorAll("*");for(var i=0;i<a.length;i++){if(a[i].tagName==="CANVAS"){try{var im=document.createElement("img");im.setAttribute("src",a[i].toDataURL());im.setAttribute("style",px(a[i]));b[i].parentNode.replaceChild(im,b[i])}catch(e){}continue}b[i].setAttribute("style",px(a[i])+"animation:none;transition:none;")}var sc=B.querySelectorAll("script");for(var j=0;j<sc.length;j++)sc[j].remove();B.setAttribute("style",px(bd)+"margin:0;width:'+CODE_W+'px;height:'+CODE_H+'px;overflow:hidden;animation:none;");var bg=getComputedStyle(bd).backgroundColor;if(clr(bg))bg=getComputedStyle(A).backgroundColor;if(clr(bg))bg="#fff";var w=document.createElement("div");w.setAttribute("style","position:relative;margin:0;overflow:hidden;width:'+CODE_W+'px;height:'+CODE_H+'px;background:"+bg);var st=document.head.querySelectorAll("style");for(var q=0;q<st.length;q++)w.appendChild(st[q].cloneNode(true));w.appendChild(B);parent.postMessage({pono:1,xml:new XMLSerializer().serializeToString(w)},"*")}catch(e){parent.postMessage({pono:1,err:String(e&&e.message||e)},"*")}}addEventListener("load",function(){setTimeout(send,'+wait+')})})()<\/script>';
+  if(/<html[\s>]/i.test(src))return src+probe;
+  return '<!doctype html><html><head><meta charset="utf-8"></head><body>'+src+probe+'</body></html>';
+}
+function xmlToJpeg(xml){
+  return new Promise(function(res,rej){
+    var W=CODE_W*2,H=CODE_H*2;
+    var svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+W+'" height="'+H+'" viewBox="0 0 '+CODE_W+' '+CODE_H+'"><foreignObject width="'+CODE_W+'" height="'+CODE_H+'">'+xml+'</foreignObject></svg>';
+    var im=new Image();
+    im.onload=function(){
+      try{var c=document.createElement("canvas");c.width=W;c.height=H;var x=c.getContext("2d");x.fillStyle="#fff";x.fillRect(0,0,W,H);x.drawImage(im,0,0,W,H);res(c.toDataURL("image/jpeg",0.9))}
+      catch(e){rej(new Error("browser memblokir hasil render. Coba Chrome terbaru"))}
+    };
+    im.onerror=function(){rej(new Error("kode tidak bisa dijadikan gambar. Pastikan CSS dan gambarnya ada di dalam kode"))};
+    im.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svg);
+  });
+}
+function codeToImage(i){
+  var sc=S.scenes[i];if(!sc)return Promise.resolve();
+  var say=function(t,c){var cd=panel.querySelectorAll(".card")[i],n=cd&&cd.querySelector(".cnote");if(n){n.textContent=t;n.className="note cnote "+(c||"")}};
+  var code=(sc.code||"").trim();
+  if(!code){say("Tempel kode HTML dulu.","bad");return Promise.resolve()}
+  var wait=Math.round(clamp(parseFloat(sc.codeWait)||1,0,10)*1000);
+  say("Memproses kode…");
+  return new Promise(function(res){
+    var f=document.createElement("iframe"),done=false,to;
+    f.setAttribute("sandbox","allow-scripts");
+    f.setAttribute("aria-hidden","true");f.tabIndex=-1;
+    f.style.cssText="position:fixed;left:0;top:0;width:"+CODE_W+"px;height:"+CODE_H+"px;border:0;opacity:.01;pointer-events:none;z-index:-1";
+    function end(){done=true;clearTimeout(to);window.removeEventListener("message",on);f.remove();res()}
+    function on(e){
+      if(done||e.source!==f.contentWindow||!e.data||!e.data.pono)return;
+      if(e.data.err){say("Gagal membaca halaman: "+e.data.err,"bad");end();return}
+      xmlToJpeg(e.data.xml).then(function(url){
+        return setImg(sc.id,url).then(function(ok){
+          if(!ok)throw new Error("gambar hasil tidak bisa dibuka");
+          idbDo("readwrite",function(st){return st.put(url,sc.id)});
+          if(!sc.imgMode||sc.imgMode==="none")sc.imgMode=S.gem.imgMode||"full";
+          save();renderPanel();render();say("Gambar adegan dibuat dari kode.","ok");
+        });
+      }).catch(function(err){say("Gagal: "+(err&&err.message||err),"bad")}).then(end);
+    }
+    to=setTimeout(function(){say("Waktu habis. Periksa kode, mungkin ada perulangan tanpa akhir.","bad");end()},wait+8000);
+    window.addEventListener("message",on);
+    f.srcdoc=codeDoc(code,wait);
+    document.body.appendChild(f);
+  });
+}
 async function bulkImport(files){
   files.sort(function(a,b){return a.name.localeCompare(b.name,undefined,{numeric:true})});
   var n=Math.min(files.length,S.scenes.length);
@@ -796,6 +850,11 @@ function cardHTML(s,i){
   '<div class="imgrow"><div class="thumb">'+(imgs[s.id]?'<img alt="" src="'+imgs[s.id].url+'">':"Belum ada gambar")+'</div>'+
   '<div class="imgctl"><label class="f">Gambar<select data-f="imgMode"><option value="card"'+(modeOf(s)==="card"?" selected":"")+'>Kartu</option><option value="full"'+(modeOf(s)==="full"?" selected":"")+'>Latar penuh</option><option value="none"'+(imgs[s.id]&&s.imgMode==="none"?" selected":"")+'>Sembunyikan</option></select></label>'+
   '<div class="rowx"><button class="btn" data-act="genimg"'+(busy?" disabled":"")+'>'+(imgs[s.id]?"Buat ulang":"Buat gambar")+'</button><label class="btn">Unggah<input type="file" accept="image/*" data-up="1"></label>'+(imgs[s.id]?'<button class="btn" data-act="delimg">Hapus</button>':'')+'</div></div></div>'+
+  '<details'+(s.code?' open':'')+'><summary>Gambar dari kode (HTML/CSS/JS)</summary>'+
+  '<label class="f">Kode HTML<textarea class="code" rows="6" spellcheck="false" data-f="code" placeholder="Tempel kode HTML lengkap atau potongan di sini">'+esc(s.code||"")+'</textarea></label>'+
+  '<div class="row"><label class="f">Ambil gambar setelah (detik)<input type="number" inputmode="decimal" min="0" max="10" step="0.5" data-f="codeWait" value="'+(s.codeWait||1)+'"></label>'+
+  '<button class="btn primary" data-act="codeimg" style="align-self:end">Jadikan gambar</button></div>'+
+  '<p class="note cnote">Hasilnya dipasang sebagai gambar adegan ini. CSS dan gambar harus ada di dalam kodenya.</p></details>'+
   '<label class="f">Perintah gambar (kosong = otomatis dari teks suara)<textarea rows="2" data-f="imgPrompt" placeholder="mis. excavator kuning mengangkat batu besar di tambang">'+esc(s.imgPrompt||"")+'</textarea></label>'+
   '<div class="row"><label class="f">Durasi (detik)<input type="number" inputmode="decimal" min="1" max="40" step="0.5" data-f="dur" value="'+s.dur+'"></label>'+
   '<label class="f">Animasi<select data-f="anim">'+Object.keys(ANIMS).map(function(k){return '<option value="'+k+'"'+(s.anim===k?" selected":"")+'>'+ANIMS[k]+'</option>'}).join("")+'</select></label></div>'+
@@ -924,6 +983,7 @@ panel.addEventListener("click",function(e){
     afterStructure()}
   else if(act==="del"&&S.scenes.length>1){dropImg(S.scenes[i].id);S.scenes.splice(i,1);afterStructure()}
   else if(act==="genimg"){genImages(false,i)}
+  else if(act==="codeimg"){codeToImage(i)}
   else if(act==="delimg"){dropImg(S.scenes[i].id);save();renderPanel();render()}
   else if(act==="add"){S.scenes.push({id:uid(),label:"",text:"Judul *baru*",bullets:"",dur:3.5,anim:"reveal",speech:""});afterStructure(true)}
   else if(act==="fit"&&audio.buf){var T=total(),f=audio.dur/T;S.scenes.forEach(function(s){s.dur=Math.max(1,Math.round((+s.dur)*f*10)/10)});save();renderPanel();render()}
