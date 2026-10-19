@@ -1,4 +1,4 @@
-<title>Edy Motion</title>
+<title>Pono Motion</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -160,7 +160,8 @@ var DEFAULT={theme:"industri",handle:"@MrPonoTech",res:720,script:"",
  {id:uid(),label:"Jangan ketinggalan",text:"*Follow* terus",bullets:"Alat berat\nKonstruksi\nTeknik industri",dur:5,anim:"reveal",speech:"Jangan sampai ketinggalan, follow terus untuk konten alat berat lainnya."}
 ]};
 var S=load()||DEFAULT;
-S.gem=Object.assign({provText:"gemini",provCode:"gemini",groq:"llama-3.3-70b-versatile"},DEFAULT.gem,S.gem||{});
+S.gem=Object.assign({provText:"gemini",provCode:"gemini",groq:"openai/gpt-oss-120b"},DEFAULT.gem,S.gem||{});
+if(S.gem.groq==="llama-3.3-70b-versatile"&&!S.gem.groqList)S.gem.groq="openai/gpt-oss-120b";
 function load(){try{var j=localStorage.getItem("pono-motion-v2");if(j){var o=JSON.parse(j);if(o&&o.scenes&&o.scenes.length)return o}}catch(e){}return null}
 var saveTimer;
 function save(){clearTimeout(saveTimer);saveTimer=setTimeout(function(){try{localStorage.setItem("pono-motion-v2",JSON.stringify(S))}catch(e){}},400)}
@@ -509,7 +510,20 @@ function retryDelay(err){
   return 20;
 }
 var MAX_WAIT=90;
-var GROQ_MODELS=["llama-3.3-70b-versatile","openai/gpt-oss-120b","openai/gpt-oss-20b","llama-3.1-8b-instant"];
+async function groqModels(){
+  var j=await net("https://api.groq.com/openai/v1/models",{headers:{"Authorization":"Bearer "+groqKey}});
+  var ids=((j&&j.data)||[]).map(function(m){return m.id}).filter(function(id){return id&&!/whisper|tts|orpheus|guard|safeguard|embed|playai|distil/i.test(id)}).sort();
+  S.gem.groqList=ids;save();return ids;
+}
+function pickGroq(ids){
+  var pref=["openai/gpt-oss-120b","openai/gpt-oss-20b","llama-3.3-70b-versatile","qwen/","moonshotai/","meta-llama/","llama-3.1-8b-instant"];
+  for(var i=0;i<pref.length;i++){
+    var hit=ids.filter(function(id){return pref[i].slice(-1)==="/"?id.indexOf(pref[i])===0:id===pref[i]})[0];
+    if(hit)return hit;
+  }
+  return ids[0]||"";
+}
+var GROQ_MODELS=["openai/gpt-oss-120b","openai/gpt-oss-20b"];
 function provOf(kind){return (kind==="code"?S.gem.provCode:S.gem.provText)==="groq"?"groq":"gemini"}
 function keyFor(kind){return provOf(kind)==="groq"?groqKey:apiKey}
 function provName(kind){return provOf(kind)==="groq"?"Groq":"Gemini"}
@@ -519,7 +533,19 @@ async function llmText(kind,prompt,o){
     var m=S.gem.groq||GROQ_MODELS[0];
     var body={model:m,messages:[{role:"user",content:prompt}],temperature:o.temp==null?0.5:o.temp,max_completion_tokens:o.max||3000};
     if(/^openai\/gpt-oss/.test(m))body.reasoning_effort="low";
-    var j=await net("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+groqKey},body:JSON.stringify(body)});
+    var j;
+    try{j=await net("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+groqKey},body:JSON.stringify(body)})}
+    catch(e){
+      if(!o._retried&&/does not exist|model_not_found|decommissioned|not have access/i.test(e.message||"")){
+        var ids=await groqModels();
+        var pick=pickGroq(ids.filter(function(x){return x!==m}));
+        if(!pick)throw new Error("Groq: tidak ada model teks yang tersedia untuk key ini. "+(e.message||""));
+        S.gem.groq=pick;S.gem.groqCustom=false;save();
+        setMsg('Model "'+m+'" tidak tersedia di akunmu. Beralih ke '+pick+"…","bad");
+        return llmText(kind,prompt,Object.assign({},o,{_retried:true}));
+      }
+      throw e;
+    }
     var t=(j&&j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content)||"";
     return String(t).replace(/<think>[\s\S]*?<\/think>/g,"").trim();
   }
@@ -832,10 +858,6 @@ function codeToImage(i){
   });
 }
 function modelFix(msg){
-  if(/does not exist|model_not_found|decommissioned|not have access to it/i.test(msg||"")&&(provOf("text")==="groq"||provOf("code")==="groq")){
-    var bg=S.gem.groq;S.gem.groq=GROQ_MODELS[0];S.gem.groqCustom=false;save();
-    return ' Model Groq "'+bg+'" tidak tersedia, jadi saya kembalikan ke '+GROQ_MODELS[0]+'. Coba lagi.';
-  }
   if(!/is not found|not supported for generateContent/i.test(msg||""))return "";
   var bad=S.gem.text;S.gem.text="gemini-flash-latest";S.gem.textCustom=false;save();
   return ' Nama model "'+bad+'" tidak ditemukan (mungkin terpotong), jadi saya kembalikan ke gemini-flash-latest. Coba lagi.';
@@ -1047,11 +1069,13 @@ function textProvHTML(g){
   var h='<div class="row"><label class="f">AI untuk pecah naskah<select id="gprovtext">'+opt("gemini","Gemini",pt)+opt("groq","Groq",pt)+'</select></label>'+
     '<label class="f">AI untuk kode visual<select id="gprovcode">'+opt("gemini","Gemini",pc)+opt("groq","Groq",pc)+'</select></label></div>';
   if(pt==="groq"||pc==="groq"){
-    var cust=g.groqCustom||GROQ_MODELS.indexOf(g.groq||GROQ_MODELS[0])<0;
+    var gl=(g.groqList&&g.groqList.length)?g.groqList:GROQ_MODELS;
+    var cust=g.groqCustom||gl.indexOf(g.groq||GROQ_MODELS[0])<0;
     h+='<label class="f">API key Groq<input type="password" id="grkey" autocomplete="off" autocapitalize="off" spellcheck="false" value="'+esc(groqKey)+'" placeholder="gsk_…"></label>'+
       '<p class="note">Cara dapat key: buka <a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com/keys</a>, masuk (Google atau GitHub), tekan <b>Create API Key</b>, beri nama, lalu salin kuncinya yang diawali <code>gsk_</code>. Kunci hanya tampil sekali, jadi simpan.</p>'+
-      '<label class="f">Model Groq<select id="grmodel">'+GROQ_MODELS.map(function(m){return opt(m,m,cust?"":(g.groq||GROQ_MODELS[0]))}).join("")+'<option value="custom"'+(cust?" selected":"")+'>Lainnya (ketik sendiri)</option></select></label>'+
-      (cust?'<label class="f">Nama model Groq<input type="text" id="grmodelx" value="'+esc(g.groq||"")+'" autocapitalize="off" spellcheck="false" placeholder="mis. llama-3.3-70b-versatile"></label>':'');
+      '<label class="f">Model Groq<select id="grmodel">'+gl.map(function(m){return opt(m,m,cust?"":(g.groq||GROQ_MODELS[0]))}).join("")+'<option value="custom"'+(cust?" selected":"")+'>Lainnya (ketik sendiri)</option></select></label>'+
+      '<button class="btn" id="grlist">Muat daftar model dari akun Groq-ku</button>'+
+      (cust?'<label class="f">Nama model Groq<input type="text" id="grmodelx" value="'+esc(g.groq||"")+'" autocapitalize="off" spellcheck="false" placeholder="mis. openai/gpt-oss-20b"></label>':'');
   }
   if(pt==="gemini"||pc==="gemini"){
     h+='<label class="f">Model Gemini untuk teks dan kode<select id="gtextsel">'+TEXT_MODELS.map(function(m){return '<option value="'+m+'"'+(!g.textCustom&&g.text===m?" selected":"")+'>'+m+'</option>'}).join("")+'<option value="custom"'+(g.textCustom||TEXT_MODELS.indexOf(g.text)<0?" selected":"")+'>Lainnya (ketik sendiri)</option></select></label>'+
@@ -1174,7 +1198,17 @@ panel.addEventListener("change",function(e){
 panel.addEventListener("click",function(e){
   var tp=e.target.closest("[data-theme-pick]");
   if(tp){S.theme=tp.dataset.themePick;save();renderPanel();render();return}
-  var b=e.target.closest("[data-act],#rec,#savebtn,#split,#tts,#imgs,#mkmaster,#cpprompts,#codes,#codesall");if(!b)return;
+  var b=e.target.closest("[data-act],#rec,#savebtn,#split,#tts,#imgs,#mkmaster,#cpprompts,#codes,#codesall,#grlist");if(!b)return;
+  if(b.id==="grlist"){
+    if(!groqKey){setMsg("Isi API key Groq dulu.","bad");return}
+    setMsg("Mengambil daftar model dari Groq…");
+    groqModels().then(function(ids){
+      if(!ids.length){setMsg("Groq tidak mengembalikan model teks untuk key ini.","bad");return}
+      if(ids.indexOf(S.gem.groq)<0){S.gem.groq=pickGroq(ids);S.gem.groqCustom=false;save()}
+      renderPanel();setMsg(ids.length+" model tersedia. Terpilih: "+S.gem.groq,"ok");
+    }).catch(function(err){setMsg("Gagal mengambil daftar model: "+(err&&err.message||err),"bad")});
+    return;
+  }
   if(b.id==="cpprompts"){copyPrompts(b);return}
   if(b.id==="codes"){genCodes(true);return}
   if(b.id==="codesall"){genCodes(false);return}
