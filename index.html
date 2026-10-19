@@ -863,7 +863,7 @@ function modelFix(msg){
   return ' Nama model "'+bad+'" tidak ditemukan (mungkin terpotong), jadi saya kembalikan ke gemini-flash-latest. Coba lagi.';
 }
 var IMG_MODELS=[["gemini-3.1-flash-image","Nano Banana 2 · gemini-3.1-flash-image"],["gemini-3.1-flash-lite-image","Nano Banana 2 Lite · gemini-3.1-flash-lite-image"],["gemini-3-pro-image","Nano Banana Pro · gemini-3-pro-image"],["gemini-2.5-flash-image","Nano Banana · gemini-2.5-flash-image"]];
-var TEXT_MODELS=["gemini-flash-latest","gemini-flash-lite-latest","gemini-3.8-flash","gemini-3.6-flash","gemini-3.5-flash","gemini-3.5-flash-lite","gemini-3.1-flash-lite","gemini-2.5-flash","gemini-2.5-flash-lite"];
+var TEXT_MODELS=["gemini-flash-latest","gemini-flash-lite-latest","gemini-3.8-flash","gemini-3.7-flash","gemini-3.6-flash","gemini-3.5-flash","gemini-3.5-flash-lite","gemini-3.1-flash-lite","gemini-3-flash","gemini-2.5-flash","gemini-2.5-flash-lite"];
 var CODE_STYLE_DEFAULT="Flat vector motion graphic. Dark charcoal background (#121315) with a subtle grid, orange accent (#FF7440), steel gray and off-white shapes. Simple geometric objects, bold silhouettes, smooth looping CSS animation. No photos.";
 function codePromptFor(sc,i,n){
   var topic=(sc.speech&&sc.speech.trim())||String(sc.text).replace(/\*/g,"");
@@ -1087,7 +1087,9 @@ function scriptHTML(){
   var g=S.gem, stale=audio.tts&&audio.sig!==sig();
   var vo=g.voice;
   var voices=VOICES.map(function(v){return '<option value="'+v+'"'+(v===vo?" selected":"")+'>'+v+'</option>'}).join("");
-  var models=["gemini-3.8-flash-tts","gemini-3.8-flash-lite-tts","gemini-3.1-flash-tts-preview","gemini-2.5-pro-preview-tts","gemini-2.5-flash-preview-tts"].map(function(m){return '<option value="'+m+'">'}).join("");
+  var TTS_MODELS=["gemini-3.8-flash-tts","gemini-3.8-flash-lite-tts","gemini-3.1-flash-tts","gemini-3.1-flash-tts-preview","gemini-2.5-flash-tts","gemini-2.5-flash-preview-tts","gemini-2.5-pro-preview-tts"];
+  var ttsCustom=g.ttsCustom||TTS_MODELS.indexOf(g.tts)<0;
+  var models=TTS_MODELS.map(function(m){return '<option value="'+m+'"'+(!ttsCustom&&g.tts===m?" selected":"")+'>'+m+'</option>'}).join("")+'<option value="custom"'+(ttsCustom?" selected":"")+'>Lainnya (ketik sendiri)</option>';
   return '<div class="sec"><h3>Naskah</h3>'+
    '<label class="f">Tempel seluruh naskah di sini<textarea id="script" rows="9" placeholder="Tempel naskah voice-over di sini…">'+esc(S.script||"")+'</textarea></label>'+
    '<label class="chk"><input type="checkbox" id="gai"'+(g.ai?" checked":"")+'> Rapikan judul adegan dengan Gemini</label>'+
@@ -1100,7 +1102,7 @@ function scriptHTML(){
    '<label class="chk"><input type="checkbox" id="gremember"'+(rememberKey?" checked":"")+'> Ingat kunci di HP ini</label>'+
    '<p class="note">Kunci hanya dikirim ke Google dan tidak disimpan di server mana pun. Buat kunci di <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>. Jangan centang "ingat" di HP milik orang lain.</p>'+
    '<div class="row"><label class="f">Suara<select id="gvoice">'+voices+'</select></label>'+
-   '<label class="f">Model suara<input type="text" id="gtts" list="gttsl" value="'+esc(g.tts)+'"><datalist id="gttsl">'+models+'</datalist></label></div>'+
+   '<label class="f">Model suara<select id="gttssel">'+models+'</select></label>'+(ttsCustom?'<label class="f">Nama model suara<input type="text" id="gtts" value="'+esc(g.tts)+'" autocapitalize="off" spellcheck="false"></label>':'')+'</div>'+
    '<label class="f">Gaya bicara<input type="text" id="gstyle" value="'+esc(g.style||"")+'" placeholder="Contoh: Energetic documentary narrator, clear American English, medium pace"></label>'+
    '<button class="btn primary" id="tts"'+(busy?" disabled":"")+'>Buat suara untuk semua adegan</button>'+
    '<h3 style="margin-top:6px">Visual motion grafik (kode)</h3>'+
@@ -1110,7 +1112,7 @@ function scriptHTML(){
    '<label class="f">Tampilan gambar di semua adegan<select id="gmode"><option value="full"'+(g.imgMode!=="card"?" selected":"")+'>Latar penuh, dari awal sampai akhir</option><option value="card"'+(g.imgMode==="card"?" selected":"")+'>Kartu</option></select></label>'+
    '<button class="btn primary" id="codes"'+(busy?" disabled":"")+'>Buat visual kode untuk adegan yang belum ada</button>'+
    '<button class="btn" id="codesall"'+(busy?" disabled":"")+'>Buat ulang visual semua adegan</button>'+
-   '<label class="f">Model gambar Gemini (dipakai tombol Buat gambar di tiap adegan)<select id="gimgsel">'+IMG_MODELS.map(function(m){return '<option value="'+m[0]+'"'+(!g.imgCustom&&g.img===m[0]?" selected":"")+'>'+m[1]+'</option>'}).join("")+'<option value="custom"'+(g.imgCustom||IMG_MODELS.every(function(m){return m[0]!==g.img})?" selected":"")+'>Lainnya (ketik sendiri)</option></select></label>'+
+   '<label class="f">Model gambar Gemini (hanya untuk tombol Buat gambar per adegan; butuh jatah gambar atau billing. Key gratis yang kamu punya belum punya jatah gambar, jadi pakai cara Upload atau Salin prompt di bawah)<select id="gimgsel">'+IMG_MODELS.map(function(m){return '<option value="'+m[0]+'"'+(!g.imgCustom&&g.img===m[0]?" selected":"")+'>'+m[1]+'</option>'}).join("")+'<option value="custom"'+(g.imgCustom||IMG_MODELS.every(function(m){return m[0]!==g.img})?" selected":"")+'>Lainnya (ketik sendiri)</option></select></label>'+
    ((g.imgCustom||IMG_MODELS.every(function(m){return m[0]!==g.img}))?'<label class="f">Nama model gambar<input type="text" id="gimg" value="'+esc(g.img)+'" placeholder="mis. gemini-3.1-flash-image" autocapitalize="off" spellcheck="false"></label>':'')+
    '<details><summary>Gambar manual: master prompt, salin prompt, lalu unggah</summary>'+
    '<label class="f">Master prompt gambar (ditempel ke semua prompt gambar)<textarea id="gimgstyle" rows="6" placeholder="Contoh: Cinematic photorealistic style. Setting: ... Lighting: ... Color palette: ... Camera: ... Keep the same look in every scene.">'+esc(g.imgStyle)+'</textarea></label>'+
@@ -1169,7 +1171,7 @@ panel.addEventListener("input",function(e){
   else if(id==="grkey"){groqKey=el.value.trim();try{if(rememberKey)localStorage.setItem("pono-groqkey",groqKey)}catch(e){}}
   else if(id==="grmodelx"){S.gem.groq=el.value.trim();save()}
   else if(id==="gstyle"){S.gem.style=el.value;save()}
-  else if(id==="gtts"){S.gem.tts=el.value.trim();save()}
+  else if(id==="gtts"){S.gem.tts=el.value.trim();S.gem.ttsCustom=true;save()}
   else if(id==="gtext"){S.gem.text=el.value.trim();save()}
   else if(id==="gimg"){S.gem.img=el.value.trim();save()}
   else if(id==="gimgstyle"){S.gem.imgStyle=el.value;save()}
@@ -1181,6 +1183,7 @@ panel.addEventListener("change",function(e){
   if(el.id==="res"){S.res=+el.value;setRes();save();render()}
   if(el.id==="aud"&&el.files&&el.files[0])loadAudio(el.files[0]).then(renderPanel);
   if(el.id==="gvoice"){S.gem.voice=el.value;save()}
+  if(el.id==="gttssel"){if(el.value==="custom"){S.gem.ttsCustom=true}else{S.gem.ttsCustom=false;S.gem.tts=el.value}save();renderPanel()}
   if(el.id==="gai"){S.gem.ai=el.checked;save()}
   if(el.id==="gref"){S.gem.imgRef=el.checked;save()}
   if(el.id==="gauto"){S.gem.autoCode=el.checked;save()}
