@@ -150,9 +150,9 @@ var ANIMS={reveal:"Naik dari garis",pop:"Pop membal",slide:"Geser naik",type:"Ke
 var VOICES=["Kore","Puck","Charon","Fenrir","Leda","Orus","Aoede","Zephyr","Achird","Sadaltager","Sulafat","Algieba","Gacrux","Iapetus","Erinome","Alnilam","Schedar","Enceladus","Achernar","Umbriel"];
 var uid=function(){return Math.random().toString(36).slice(2,9)};
 var SAMPLE_SCRIPT="Alat berat ini bisa mengangkat 20 ton sekali ayun. Rahasianya ada di tiga bagian: mesin diesel, sistem hidrolik bertekanan tinggi, dan lengan baja yang kokoh. Satu ayunan saja bisa memindahkan satu truk tanah. Dan semua itu dikendalikan oleh satu orang dari dalam kabin. Jangan sampai ketinggalan, follow terus untuk konten alat berat lainnya.";
-var DEFAULT={theme:"industri",handle:"@MrPonoTech",res:720,script:SAMPLE_SCRIPT,
+var DEFAULT={theme:"industri",handle:"@MrPonoTech",res:720,script:"",
  gem:{voice:"Kore",tts:"gemini-3.8-flash-tts",text:"gemini-flash-latest",style:"Narator video YouTube alat berat, bahasa Indonesia, tempo sedang, jelas dan bersemangat",ai:true,lang:"same",
-  img:"gemini-nano-banana-2.1",imgStyle:"Cinematic photorealistic style. Setting: large open-pit construction site with heavy machinery. Lighting: golden hour, warm rim light, soft dust haze. Color palette: safety yellow, steel gray, deep charcoal. Camera: wide low-angle, shallow depth of field, ultra detailed. Keep the same machines, palette and lighting in every scene.",imgMode:"full",imgRef:true},
+  img:"gemini-nano-banana-2.1",imgStyle:"",imgMode:"full",imgRef:true},
  scenes:[
  {id:uid(),label:"Mr Pono Tech",text:"Alat berat ini bisa *angkat 20 ton*",bullets:"",dur:3.5,anim:"reveal",speech:"Alat berat ini bisa mengangkat 20 ton sekali ayun."},
  {id:uid(),label:"Jadi,",text:"Cuma butuh *3 hal* biar sekuat itu",bullets:"Mesin diesel\nHidrolik bertekanan\nLengan baja",dur:6,anim:"pop",speech:"Rahasianya ada di tiga bagian: mesin diesel, sistem hidrolik bertekanan tinggi, dan lengan baja yang kokoh."},
@@ -532,7 +532,7 @@ async function doSplit(){
   var scenes=null;
   if(S.gem.ai&&apiKey){
     setMsg("Gemini sedang memecah naskah…");
-    try{scenes=await aiSplit(raw,apiKey)}catch(e){setMsg("AI gagal ("+e.message+"). Memakai pemecah otomatis biasa.","bad")}
+    try{scenes=await aiSplit(raw,apiKey)}catch(e){setMsg("AI gagal ("+e.message+"). Memakai pemecah otomatis biasa."+(/quota|429|exceed|limit/i.test(e.message)?" Kuota model ini habis, coba ganti model di atas.":"")+modelFix(e.message),"bad")}
   }
   var usedAI=!!scenes;
   if(!scenes)scenes=localSplit(raw);
@@ -718,6 +718,12 @@ function codeToImage(i){
     document.body.appendChild(f);
   });
 }
+function modelFix(msg){
+  if(!/is not found|not supported for generateContent/i.test(msg||""))return "";
+  var bad=S.gem.text;S.gem.text="gemini-flash-latest";S.gem.textCustom=false;save();
+  return ' Nama model "'+bad+'" tidak ditemukan (mungkin terpotong), jadi saya kembalikan ke gemini-flash-latest. Coba lagi.';
+}
+var TEXT_MODELS=["gemini-flash-latest","gemini-flash-lite-latest","gemini-3.8-flash","gemini-3.6-flash","gemini-3.5-flash","gemini-3.5-flash-lite","gemini-3.1-flash-lite","gemini-2.5-flash","gemini-2.5-flash-lite"];
 var CODE_STYLE_DEFAULT="Flat vector motion graphic. Dark charcoal background (#121315) with a subtle grid, orange accent (#FF7440), steel gray and off-white shapes. Simple geometric objects, bold silhouettes, smooth looping CSS animation. No photos.";
 function codePromptFor(sc,i,n){
   var topic=(sc.speech&&sc.speech.trim())||String(sc.text).replace(/\*/g,"");
@@ -759,13 +765,13 @@ async function genCodes(onlyMissing){
   var fail=0,last="";
   for(var q=0;q<idx.length;q++){
     setMsg("Menulis kode visual adegan "+(idx[q]+1)+" ("+(q+1)+" dari "+idx.length+")…");
-    try{await genCode(idx[q])}catch(e){fail++;last=String(e&&e.message||e);if(e&&e.blocked)break}
+    try{await genCode(idx[q])}catch(e){fail++;last=String(e&&e.message||e);if(e&&(e.blocked||e.status===404))break}
     setBar((q+1)/idx.length);render();
   }
   setBusy(false);setBar(null);
   if(tab==="scenes"||tab==="script")renderPanel();
   render();
-  if(fail)setMsg(fail+" adegan gagal. "+last,"bad");
+  if(fail)setMsg(fail+" adegan gagal. "+last+(/quota|429|exceed|limit/i.test(last)?" Kuota model ini habis, coba ganti model di tab Naskah.":"")+modelFix(last),"bad");
   else setMsg("Visual kode selesai ("+idx.length+" adegan). Cek dan ubah kodenya per adegan di tab Adegan.","ok");
 }
 async function bulkImport(files){
@@ -922,9 +928,12 @@ function scriptHTML(){
   var voices=VOICES.map(function(v){return '<option value="'+v+'"'+(v===vo?" selected":"")+'>'+v+'</option>'}).join("");
   var models=["gemini-3.8-flash-tts","gemini-3.8-flash-lite-tts","gemini-3.1-flash-tts-preview","gemini-2.5-pro-preview-tts","gemini-2.5-flash-preview-tts"].map(function(m){return '<option value="'+m+'">'}).join("");
   return '<div class="sec"><h3>Naskah</h3>'+
-   '<label class="f">Tempel seluruh naskah di sini<textarea id="script" rows="9" placeholder="Tulis atau tempel naskah voice-over…">'+esc(S.script||"")+'</textarea></label>'+
+   '<label class="f">Tempel seluruh naskah di sini<textarea id="script" rows="9" placeholder="Tempel naskah voice-over di sini…">'+esc(S.script||"")+'</textarea></label>'+
    '<label class="chk"><input type="checkbox" id="gai"'+(g.ai?" checked":"")+'> Rapikan judul adegan dengan Gemini</label>'+
    '<label class="f">Bahasa tulisan di layar<select id="glang"><option value="same"'+(g.lang!=="id"&&g.lang!=="en"?" selected":"")+'>Sama dengan naskah</option><option value="id"'+(g.lang==="id"?" selected":"")+'>Indonesia</option><option value="en"'+(g.lang==="en"?" selected":"")+'>English</option></select></label>'+
+   '<label class="f">Model Gemini untuk memecah naskah dan menulis kode visual<select id="gtextsel">'+TEXT_MODELS.map(function(m){return '<option value="'+m+'"'+(!g.textCustom&&g.text===m?" selected":"")+'>'+m+'</option>'}).join("")+'<option value="custom"'+(g.textCustom||TEXT_MODELS.indexOf(g.text)<0?" selected":"")+'>Lainnya (ketik sendiri)</option></select></label>'+
+   ((g.textCustom||TEXT_MODELS.indexOf(g.text)<0)?'<label class="f">Nama model<input type="text" id="gtext" value="'+esc(g.text)+'" placeholder="mis. gemini-3.5-flash-lite" autocapitalize="off" spellcheck="false"></label>':'')+
+   '<p class="note">Kalau kuota gratis model ini habis (error 429), pilih model lain. Varian lite biasanya punya jatah lebih besar.</p>'+
    '<button class="btn primary" id="split"'+(busy?" disabled":"")+'>Pecah jadi adegan</button>'+
    '<p class="note">Ini mengganti semua adegan. Tanpa API key atau tanpa centang, naskah dipecah per kalimat secara lokal.</p></div>'+
   '<div class="sec"><h3>Suara Gemini</h3>'+
@@ -934,18 +943,17 @@ function scriptHTML(){
    '<div class="row"><label class="f">Suara<select id="gvoice">'+voices+'</select></label>'+
    '<label class="f">Model suara<input type="text" id="gtts" list="gttsl" value="'+esc(g.tts)+'"><datalist id="gttsl">'+models+'</datalist></label></div>'+
    '<label class="f">Gaya bicara<input type="text" id="gstyle" value="'+esc(g.style)+'"></label>'+
-   '<details><summary>Lanjutan</summary><label class="f">Model teks untuk memecah naskah<input type="text" id="gtext" value="'+esc(g.text)+'"></label></details>'+
    '<button class="btn primary" id="tts"'+(busy?" disabled":"")+'>Buat suara untuk semua adegan</button>'+
    '<h3 style="margin-top:6px">Visual motion grafik (kode)</h3>'+
    '<p class="note">Gemini menulis kode animasi HTML/CSS untuk tiap adegan, lalu hasilnya dijadikan gambar adegan. Tanpa prompt gambar.</p>'+
-   '<label class="f">Gaya visual (warna, bentuk, suasana; sama untuk semua adegan)<textarea id="gcodestyle" rows="4">'+esc(g.codeStyle||CODE_STYLE_DEFAULT)+'</textarea></label>'+
+   '<label class="f">Gaya visual (warna, bentuk, suasana; kosong = gaya bawaan)<textarea id="gcodestyle" rows="4" placeholder="Contoh: '+esc(CODE_STYLE_DEFAULT)+'">'+esc(g.codeStyle||"")+'</textarea></label>'+
    '<label class="chk"><input type="checkbox" id="gauto"'+(g.autoCode!==false?" checked":"")+'> Otomatis buat visual kode setelah pecah adegan</label>'+
    '<label class="f">Tampilan gambar di semua adegan<select id="gmode"><option value="full"'+(g.imgMode!=="card"?" selected":"")+'>Latar penuh, dari awal sampai akhir</option><option value="card"'+(g.imgMode==="card"?" selected":"")+'>Kartu</option></select></label>'+
    '<button class="btn primary" id="codes"'+(busy?" disabled":"")+'>Buat visual kode untuk adegan yang belum ada</button>'+
    '<button class="btn" id="codesall"'+(busy?" disabled":"")+'>Buat ulang visual semua adegan</button>'+
    '<details><summary>Gambar manual: master prompt, salin prompt, lalu unggah</summary>'+
    '<label class="f">Model gambar (untuk tombol Buat gambar per adegan)<input type="text" id="gimg" list="gimgl" value="'+esc(g.img)+'"><datalist id="gimgl"><option value="gemini-nano-banana-2.1"><option value="gemini-3.1-flash-lite-image"><option value="gemini-3.1-flash-image"><option value="gemini-3-pro-image"><option value="gemini-2.5-flash-image"></datalist></label>'+
-   '<label class="f">Master prompt gambar (ditempel ke semua prompt gambar)<textarea id="gimgstyle" rows="6">'+esc(g.imgStyle)+'</textarea></label>'+
+   '<label class="f">Master prompt gambar (ditempel ke semua prompt gambar)<textarea id="gimgstyle" rows="6" placeholder="Contoh: Cinematic photorealistic style. Setting: ... Lighting: ... Color palette: ... Camera: ... Keep the same look in every scene.">'+esc(g.imgStyle)+'</textarea></label>'+
    '<button class="btn" id="mkmaster"'+(busy?" disabled":"")+'>Buat master prompt dari naskah</button>'+
    '<label class="chk"><input type="checkbox" id="gref"'+(g.imgRef?" checked":"")+'> Pakai gambar adegan 1 sebagai acuan gaya</label>'+
    '<p class="note">Salin semua prompt, tempel satu per satu di gemini.google.com (minta rasio 9:16), simpan hasilnya, lalu unggah sekaligus di sini. Gambar diurutkan menurut nama file dan dipasang ke adegan 1, 2, 3 dan seterusnya.</p>'+
@@ -1014,6 +1022,7 @@ panel.addEventListener("change",function(e){
   if(el.id==="gai"){S.gem.ai=el.checked;save()}
   if(el.id==="gref"){S.gem.imgRef=el.checked;save()}
   if(el.id==="gauto"){S.gem.autoCode=el.checked;save()}
+  if(el.id==="gtextsel"){if(el.value==="custom"){S.gem.textCustom=true}else{S.gem.textCustom=false;S.gem.text=el.value}save();renderPanel()}
   if(el.id==="glang"){S.gem.lang=el.value;save()}
   if(el.dataset.up&&el.files&&el.files[0]){var ui=sceneOf(el);if(ui!==null)importImage(el.files[0],ui).then(function(){renderPanel();render()});el.value=""}
   if(el.id==="bulkimg"&&el.files&&el.files.length){bulkImport(Array.prototype.slice.call(el.files));el.value=""}
