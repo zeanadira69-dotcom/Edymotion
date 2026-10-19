@@ -274,13 +274,13 @@ function drawCover(img,x,y,w,h,z,px){
   ctx.drawImage(img,x+(w-dw)/2+px*(dw-w)/2,y+(h-dh)/2,dw,dh);
 }
 function frameOf(im,lt){
-  if(im.fr&&im.fr.length){var f=im.fr[Math.floor(lt*(im.fps||8))%im.fr.length];if(f&&f.complete&&f.naturalWidth)return f}
+  if(im.fr&&im.fr.length){var n=im.fr.length,k=Math.floor(lt*(im.fps||8))%n;for(var q=0;q<n;q++){var f=im.fr[(k-q+n)%n];if(f&&f.complete&&f.naturalWidth)return f}}
   return im.el;
 }
 function warm(idx){
   S.scenes.forEach(function(sc,j){
     var im=imgs[sc.id];if(!im||!im.frames)return;
-    if(j===idx||j===idx+1){if(!im.fr)im.fr=im.frames.map(function(u){var a=new Image();a.src=u;return a})}
+    if(recording||j===idx||j===idx+1){if(!im.fr)im.fr=im.frames.map(function(u){var a=new Image();a.src=u;return a})}
     else if(im.fr)im.fr=null;
   });
 }
@@ -1320,7 +1320,9 @@ async function doExport(){
     var done=new Promise(function(res){rec.onstop=res});
     draw(0);
     await new Promise(function(r){requestAnimationFrame(function(){requestAnimationFrame(r)})});
-    warm(0);await new Promise(function(r){setTimeout(r,500)});
+    warm(0);
+    var decs=[];S.scenes.forEach(function(sc){var im=imgs[sc.id];if(im&&im.fr)im.fr.forEach(function(a){decs.push(a.decode?a.decode().catch(function(){}):Promise.resolve())})});
+    await Promise.all(decs);
     rec.start(250);if(src)src.start();
     var t0=performance.now(), bar=document.querySelector("#bar>i");
     await new Promise(function(res){
