@@ -271,6 +271,13 @@ function drawCover(img,x,y,w,h,z,px){
   var s=Math.max(w/iw,h/ih)*z, dw=iw*s, dh=ih*s;
   ctx.drawImage(img,x+(w-dw)/2+px*(dw-w)/2,y+(h-dh)/2,dw,dh);
 }
+function bgFull(im,alpha,prog){
+  ctx.save();ctx.globalAlpha=alpha;
+  drawCover(im.el,0,0,W,H,1.05+0.1*prog,(prog-.5)*.7);
+  var sg=ctx.createLinearGradient(0,H*.25,0,H);sg.addColorStop(0,"rgba(0,0,0,0)");sg.addColorStop(.55,"rgba(0,0,0,.55)");sg.addColorStop(1,"rgba(0,0,0,.88)");
+  ctx.fillStyle="rgba(0,0,0,.14)";ctx.fillRect(0,0,W,H);ctx.fillStyle=sg;ctx.fillRect(0,0,W,H);
+  ctx.restore();
+}
 function draw(t){
   var k=cv.width/W, th=THEMES[S.theme]||THEMES.industri;
   ctx.setTransform(k,0,0,k,0,0);
@@ -291,11 +298,9 @@ function draw(t){
   var eo=last?0:clamp((lt-(dur-0.4))/0.4,0,1), ex=eo*eo*eo, A=1-ex;
   var zoom=1+0.04*(lt/dur), im=imgs[sc.id], prog=lt/dur;
   if(L.mode==="full"&&im){
-    ctx.save();ctx.globalAlpha=clamp(lt/0.45,0,1)*A;
-    drawCover(im.el,0,0,W,H,1.05+0.1*prog,(prog-.5)*.7);
-    var sg=ctx.createLinearGradient(0,H*.25,0,H);sg.addColorStop(0,"rgba(0,0,0,0)");sg.addColorStop(.55,"rgba(0,0,0,.55)");sg.addColorStop(1,"rgba(0,0,0,.88)");
-    ctx.fillStyle="rgba(0,0,0,.14)";ctx.fillRect(0,0,W,H);ctx.fillStyle=sg;ctx.fillRect(0,0,W,H);
-    ctx.restore();
+    // crossfade antar adegan: gambar sebelumnya tetap di bawah sampai gambar baru muncul (tanpa kedip)
+    if(loc.i>0&&lt<0.45){var pv=S.scenes[loc.i-1],pim=imgs[pv.id];if(pim&&modeOf(pv)==="full")bgFull(pim,1,1)}
+    bgFull(im,clamp(lt/0.45,0,1),prog);
     th=Object.assign({},th,{fg:"#FFFFFF",muted:"rgba(255,255,255,.8)",card:"rgba(18,20,24,.74)"});
   }
   ctx.save();
