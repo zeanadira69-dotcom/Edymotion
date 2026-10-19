@@ -1,4 +1,4 @@
-<title>Edy Motion</title>
+<title>Pono Motion</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1264,6 +1264,40 @@ function pickMime(){
   for(var i=0;i<c.length;i++)if(MediaRecorder.isTypeSupported(c[i]))return c[i];
   return "";
 }
+function fixMp4Duration(buf, sec){
+  var v=new DataView(buf.buffer,buf.byteOffset,buf.byteLength);
+  var movieTs=1000, found=0;
+  function setDur(body,ver,ts,durOff32,durOff64){
+    var val=Math.round(sec*ts);
+    if(ver===1){v.setBigUint64(body+durOff64,BigInt(val))}else{v.setUint32(body+durOff32,val>>>0)}
+    found++;
+  }
+  function walk(start,end){
+    var p=start;
+    while(p+8<=end){
+      var size=v.getUint32(p), type=String.fromCharCode(buf[p+4],buf[p+5],buf[p+6],buf[p+7]), hdr=8;
+      if(size===1){size=Number(v.getBigUint64(p+8));hdr=16}else if(size===0){size=end-p}
+      if(size<8||p+size>end)break;
+      var body=p+hdr, ver=buf[body];
+      if(type==='moov'||type==='trak'||type==='mdia'){walk(body,p+size)}
+      else if(type==='mvhd'){
+        if(ver===1){movieTs=v.getUint32(body+20);setDur(body,1,movieTs,0,24)}
+        else{movieTs=v.getUint32(body+12);setDur(body,0,movieTs,16,0)}
+      }
+      else if(type==='mdhd'){
+        var ts=ver===1?v.getUint32(body+20):v.getUint32(body+12);
+        if(ver===1)setDur(body,1,ts,0,24);else setDur(body,0,ts,16,0);
+      }
+      else if(type==='tkhd'){
+        if(ver===1)setDur(body,1,movieTs,0,28);else setDur(body,0,movieTs,20,0);
+      }
+      p+=size;
+    }
+  }
+  walk(0,buf.byteLength);
+  return found;
+}
+
 async function doExport(){
   if(recording||busy)return;
   var msg=function(t,cls){var m=document.getElementById("msg");if(m){m.textContent=t;m.className="note "+(cls||"")}};
@@ -1302,6 +1336,7 @@ async function doExport(){
     try{if(src)src.stop()}catch(e){}
     var type=(rec.mimeType||mime||"video/webm").split(";")[0];
     var blob=new Blob(chunks,{type:type});
+    if(type.indexOf("mp4")>-1){try{var mb=new Uint8Array(await blob.arrayBuffer());fixMp4Duration(mb,T);blob=new Blob([mb],{type:type})}catch(e){}}
     resultState={blob:blob,url:URL.createObjectURL(blob),ext:type.indexOf("mp4")>-1?"mp4":"webm"};
     recording=false;if(ac)try{ac.close()}catch(e){}
     if(wl)try{wl.release()}catch(e){}
