@@ -1,4 +1,4 @@
-<title>Pono Motion</title>
+<title>Edy Motion</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -493,7 +493,7 @@ function setMsg(t,cls){
   var s=document.getElementById("sline");if(s){s.textContent=t;s.hidden=!t;s.className="note "+(cls||"")}
 }
 function setBar(p){var b=document.querySelector("#gbar>i");var w=document.getElementById("gbar");if(w)w.hidden=p==null;if(b&&p!=null)b.style.width=Math.round(p*100)+"%"}
-function setBusy(v){busy=v;["split","tts","imgs"].forEach(function(id){var b=document.getElementById(id);if(b)b.disabled=v});document.querySelectorAll("[data-act=genimg]").forEach(function(b){b.disabled=v})}
+function setBusy(v){busy=v;["split","tts","imgs","codes","codesall"].forEach(function(id){var b=document.getElementById(id);if(b)b.disabled=v});document.querySelectorAll("[data-act=genimg]").forEach(function(b){b.disabled=v})}
 
 async function aiSplit(raw,key){
   var L2=S.gem.lang||"same";
@@ -544,6 +544,7 @@ async function doSplit(){
   tab="scenes";renderPanel();render();
   var h=document.querySelector(".hint");
   if(h)h.insertAdjacentHTML("beforebegin",'<p class="note ok" style="margin-bottom:10px">'+scenes.length+' adegan dibuat'+(usedAI?" dengan Gemini":"")+'. Cek dan ubah seperlunya, lalu kembali ke tab Naskah untuk membuat suara.</p>');
+  if(S.gem.autoCode!==false&&apiKey)genCodes(true);
 }
 
 /* ---------- Gemini TTS ---------- */
@@ -694,11 +695,11 @@ function codeToImage(i){
   var wait=Math.round(clamp(parseFloat(sc.codeWait)||1,0,10)*1000);
   say("Memproses kode…");
   return new Promise(function(res){
-    var f=document.createElement("iframe"),done=false,to;
+    var f=document.createElement("iframe"),done=false,to,ok=false;
     f.setAttribute("sandbox","allow-scripts");
     f.setAttribute("aria-hidden","true");f.tabIndex=-1;
     f.style.cssText="position:fixed;left:0;top:0;width:"+CODE_W+"px;height:"+CODE_H+"px;border:0;opacity:.01;pointer-events:none;z-index:-1";
-    function end(){done=true;clearTimeout(to);window.removeEventListener("message",on);f.remove();res()}
+    function end(){done=true;clearTimeout(to);window.removeEventListener("message",on);f.remove();res(ok)}
     function on(e){
       if(done||e.source!==f.contentWindow||!e.data||!e.data.pono)return;
       if(e.data.err){say("Gagal membaca halaman: "+e.data.err,"bad");end();return}
@@ -707,7 +708,7 @@ function codeToImage(i){
           if(!ok)throw new Error("gambar hasil tidak bisa dibuka");
           idbDo("readwrite",function(st){return st.put(url,sc.id)});
           if(!sc.imgMode||sc.imgMode==="none")sc.imgMode=S.gem.imgMode||"full";
-          save();renderPanel();render();say("Gambar adegan dibuat dari kode.","ok");
+          ok=true;save();renderPanel();render();say("Gambar adegan dibuat dari kode.","ok");
         });
       }).catch(function(err){say("Gagal: "+(err&&err.message||err),"bad")}).then(end);
     }
@@ -716,6 +717,56 @@ function codeToImage(i){
     f.srcdoc=codeDoc(code,wait);
     document.body.appendChild(f);
   });
+}
+var CODE_STYLE_DEFAULT="Flat vector motion graphic. Dark charcoal background (#121315) with a subtle grid, orange accent (#FF7440), steel gray and off-white shapes. Simple geometric objects, bold silhouettes, smooth looping CSS animation. No photos.";
+function codePromptFor(sc,i,n){
+  var topic=(sc.speech&&sc.speech.trim())||String(sc.text).replace(/\*/g,"");
+  var st=(S.gem.codeStyle||CODE_STYLE_DEFAULT).trim();
+  return "You are a motion graphics designer who writes code. Create ONE self-contained HTML document that visually illustrates this scene of a vertical short video (scene "+(i+1)+" of "+n+").\n\n"+
+  "SCENE: "+topic+"\n\nSTYLE (keep identical across all scenes): "+st+"\n\n"+
+  "RULES:\n- Output ONLY the HTML code, no explanation, no markdown fences.\n"+
+  "- Viewport is exactly 360x640 CSS px (9:16). html,body margin 0, width 100%, height 100%, overflow hidden, full-bleed background.\n"+
+  "- Everything inline: one <style>, inline SVG and/or divs, optional short <script>. No external fonts, images, CDN, or network.\n"+
+  "- Draw the subject with SVG or CSS shapes (simple, bold, recognizable). Show the key idea of the scene visually (scale comparison, motion, flow, rotation, counting up).\n"+
+  "- Animate with CSS @keyframes (JS only if needed). The composition must already look rich and complete about 1.5 seconds after load, and loop smoothly.\n"+
+  "- NO text, letters, numbers, or logos anywhere (the app adds captions). Keep the main subject in the upper 65% of the frame and leave calm space at the bottom.\n"+
+  "- Avoid heavy filters or blur.";
+}
+function stripFences(t){
+  t=String(t||"").trim();
+  var m=/```(?:html)?\s*([\s\S]*?)```/i.exec(t);if(m)t=m[1].trim();
+  var k=t.search(/<!doctype|<html|<svg|<div|<style/i);if(k>0)t=t.slice(k);
+  return t;
+}
+async function genCode(i){
+  var sc=S.scenes[i],n=S.scenes.length;
+  var j=await retrying(function(){return net("https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(S.gem.text)+":generateContent",{
+    method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":apiKey},
+    body:JSON.stringify({contents:[{parts:[{text:codePromptFor(sc,i,n)}]}],generationConfig:{temperature:0.7}})})});
+  var parts=j&&j.candidates&&j.candidates[0]&&j.candidates[0].content&&j.candidates[0].content.parts;
+  var code=stripFences(parts?parts.map(function(p){return p.text||""}).join(""):"");
+  if(code.length<80)throw new Error("Gemini tidak mengembalikan kode");
+  sc.code=code;sc.codeWait=1.5;save();
+  var ok=await codeToImage(i);
+  if(!ok)throw new Error("kode adegan "+(i+1)+" tidak bisa dijadikan gambar");
+}
+async function genCodes(onlyMissing){
+  if(busy)return;
+  if(!apiKey){setMsg("Isi API key Gemini dulu.","bad");return}
+  var idx=[];S.scenes.forEach(function(sc,i){if(!onlyMissing||!imgs[sc.id])idx.push(i)});
+  if(!idx.length){setMsg("Semua adegan sudah punya visual.","ok");return}
+  setBusy(true);pause();setBar(0);
+  var fail=0,last="";
+  for(var q=0;q<idx.length;q++){
+    setMsg("Menulis kode visual adegan "+(idx[q]+1)+" ("+(q+1)+" dari "+idx.length+")…");
+    try{await genCode(idx[q])}catch(e){fail++;last=String(e&&e.message||e);if(e&&e.blocked)break}
+    setBar((q+1)/idx.length);render();
+  }
+  setBusy(false);setBar(null);
+  if(tab==="scenes"||tab==="script")renderPanel();
+  render();
+  if(fail)setMsg(fail+" adegan gagal. "+last,"bad");
+  else setMsg("Visual kode selesai ("+idx.length+" adegan). Cek dan ubah kodenya per adegan di tab Adegan.","ok");
 }
 async function bulkImport(files){
   files.sort(function(a,b){return a.name.localeCompare(b.name,undefined,{numeric:true})});
@@ -885,14 +936,18 @@ function scriptHTML(){
    '<label class="f">Gaya bicara<input type="text" id="gstyle" value="'+esc(g.style)+'"></label>'+
    '<details><summary>Lanjutan</summary><label class="f">Model teks untuk memecah naskah<input type="text" id="gtext" value="'+esc(g.text)+'"></label></details>'+
    '<button class="btn primary" id="tts"'+(busy?" disabled":"")+'>Buat suara untuk semua adegan</button>'+
-   '<h3 style="margin-top:6px">Gambar Gemini</h3>'+
-   '<label class="f">Model gambar<input type="text" id="gimg" list="gimgl" value="'+esc(g.img)+'"><datalist id="gimgl"><option value="gemini-nano-banana-2.1"><option value="gemini-3.1-flash-lite-image"><option value="gemini-3.1-flash-image"><option value="gemini-3-pro-image"><option value="gemini-2.5-flash-image"></datalist></label>'+
-   '<label class="f">Master prompt (dunia, gaya, warna, cahaya, kamera; ditempel ke semua adegan)<textarea id="gimgstyle" rows="6">'+esc(g.imgStyle)+'</textarea></label>'+
-   '<button class="btn" id="mkmaster"'+(busy?" disabled":"")+'>Buat master prompt dari naskah</button>'+
-   '<label class="chk"><input type="checkbox" id="gref"'+(g.imgRef?" checked":"")+'> Pakai gambar adegan 1 sebagai acuan gaya (lebih konsisten)</label>'+
+   '<h3 style="margin-top:6px">Visual motion grafik (kode)</h3>'+
+   '<p class="note">Gemini menulis kode animasi HTML/CSS untuk tiap adegan, lalu hasilnya dijadikan gambar adegan. Tanpa prompt gambar.</p>'+
+   '<label class="f">Gaya visual (warna, bentuk, suasana; sama untuk semua adegan)<textarea id="gcodestyle" rows="4">'+esc(g.codeStyle||CODE_STYLE_DEFAULT)+'</textarea></label>'+
+   '<label class="chk"><input type="checkbox" id="gauto"'+(g.autoCode!==false?" checked":"")+'> Otomatis buat visual kode setelah pecah adegan</label>'+
    '<label class="f">Tampilan gambar di semua adegan<select id="gmode"><option value="full"'+(g.imgMode!=="card"?" selected":"")+'>Latar penuh, dari awal sampai akhir</option><option value="card"'+(g.imgMode==="card"?" selected":"")+'>Kartu</option></select></label>'+
-   '<button class="btn primary" id="imgs"'+(busy?" disabled":"")+'>Buat gambar untuk adegan yang belum ada</button>'+
-   '<details><summary>Tanpa API gambar (gratis): buat di aplikasi Gemini, lalu unggah</summary>'+
+   '<button class="btn primary" id="codes"'+(busy?" disabled":"")+'>Buat visual kode untuk adegan yang belum ada</button>'+
+   '<button class="btn" id="codesall"'+(busy?" disabled":"")+'>Buat ulang visual semua adegan</button>'+
+   '<details><summary>Gambar manual: master prompt, salin prompt, lalu unggah</summary>'+
+   '<label class="f">Model gambar (untuk tombol Buat gambar per adegan)<input type="text" id="gimg" list="gimgl" value="'+esc(g.img)+'"><datalist id="gimgl"><option value="gemini-nano-banana-2.1"><option value="gemini-3.1-flash-lite-image"><option value="gemini-3.1-flash-image"><option value="gemini-3-pro-image"><option value="gemini-2.5-flash-image"></datalist></label>'+
+   '<label class="f">Master prompt gambar (ditempel ke semua prompt gambar)<textarea id="gimgstyle" rows="6">'+esc(g.imgStyle)+'</textarea></label>'+
+   '<button class="btn" id="mkmaster"'+(busy?" disabled":"")+'>Buat master prompt dari naskah</button>'+
+   '<label class="chk"><input type="checkbox" id="gref"'+(g.imgRef?" checked":"")+'> Pakai gambar adegan 1 sebagai acuan gaya</label>'+
    '<p class="note">Salin semua prompt, tempel satu per satu di gemini.google.com (minta rasio 9:16), simpan hasilnya, lalu unggah sekaligus di sini. Gambar diurutkan menurut nama file dan dipasang ke adegan 1, 2, 3 dan seterusnya.</p>'+
    '<button class="btn" id="cpprompts">Salin semua prompt gambar</button>'+
    '<label class="btn">Unggah banyak gambar sekaligus<input type="file" accept="image/*" multiple id="bulkimg"></label></details>'+
@@ -948,6 +1003,7 @@ panel.addEventListener("input",function(e){
   else if(id==="gtext"){S.gem.text=el.value.trim();save()}
   else if(id==="gimg"){S.gem.img=el.value.trim();save()}
   else if(id==="gimgstyle"){S.gem.imgStyle=el.value;save()}
+  else if(id==="gcodestyle"){S.gem.codeStyle=el.value;save()}
 });
 panel.addEventListener("change",function(e){
   var el=e.target;
@@ -957,6 +1013,7 @@ panel.addEventListener("change",function(e){
   if(el.id==="gvoice"){S.gem.voice=el.value;save()}
   if(el.id==="gai"){S.gem.ai=el.checked;save()}
   if(el.id==="gref"){S.gem.imgRef=el.checked;save()}
+  if(el.id==="gauto"){S.gem.autoCode=el.checked;save()}
   if(el.id==="glang"){S.gem.lang=el.value;save()}
   if(el.dataset.up&&el.files&&el.files[0]){var ui=sceneOf(el);if(ui!==null)importImage(el.files[0],ui).then(function(){renderPanel();render()});el.value=""}
   if(el.id==="bulkimg"&&el.files&&el.files.length){bulkImport(Array.prototype.slice.call(el.files));el.value=""}
@@ -966,8 +1023,10 @@ panel.addEventListener("change",function(e){
 panel.addEventListener("click",function(e){
   var tp=e.target.closest("[data-theme-pick]");
   if(tp){S.theme=tp.dataset.themePick;save();renderPanel();render();return}
-  var b=e.target.closest("[data-act],#rec,#savebtn,#split,#tts,#imgs,#mkmaster,#cpprompts");if(!b)return;
+  var b=e.target.closest("[data-act],#rec,#savebtn,#split,#tts,#imgs,#mkmaster,#cpprompts,#codes,#codesall");if(!b)return;
   if(b.id==="cpprompts"){copyPrompts(b);return}
+  if(b.id==="codes"){genCodes(true);return}
+  if(b.id==="codesall"){genCodes(false);return}
   if(b.id==="imgs"){genImages(true);return}
   if(b.id==="mkmaster"){makeMaster();return}
   if(b.id==="rec"){doExport();return}
